@@ -1,220 +1,206 @@
-import { useState } from "react";
+import React, { useCallback, useState } from "react";
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  addEdge,
+  Handle,
+  Position,
+  useEdgesState,
+  useNodesState,
+  ReactFlowProvider,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
-export default function DialogueTreeEditor() {
-  const [nodes, setNodes] = useState([
-    {
-      id: "root",
+/**
+ * DialogueNode: top target handle + N source handles under the node, spaced evenly.
+ */
+function DialogueNode({ data }) {
+  return (
+    <div className="relative w-56">
+      {/* Incoming connection */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="w-2 h-2 rounded-full bg-blue-500"
+      />
+
+      <div className="rounded-2xl bg-white border shadow p-4 space-y-1">
+        <p className="font-semibold truncate">{data.name}</p>
+        <p className="text-sm text-gray-700 whitespace-pre-wrap">{data.message}</p>
+      </div>
+
+      {/* Outgoing connections: one per choice */}
+      <div className="absolute left-0 right-0 -bottom-2 flex justify-evenly">
+        {(data.choices || []).map((_, idx) => (
+        <Handle
+            key={idx}
+            id={`choice_${idx}`}
+            type="source"
+            position={Position.Bottom}
+            className="w-2 h-2 rounded-full bg-green-500"
+        />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = { dialogue: DialogueNode };
+
+const initialNodes = [
+  {
+    id: "root",
+    type: "dialogue",
+    position: { x: 0, y: 0 },
+    data: {
       name: "Rooty",
       message: "Bonjour, que puis-je faire pour vous ?",
-      choices: []
-    }
-  ]);
+      choices: [{ label: "Oui" }, { label: "Non" }],
+    },
+  },
+];
 
+const initialEdges = [];
+
+export default function DialogueTreeEditorFlow() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState("root");
-  const [editingNodeId, setEditingNodeId] = useState(null);
-  const [draggedNodeId, setDraggedNodeId] = useState(null);
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+  /* Connect bottom handle -> top handle */
+  const onConnect = useCallback(
+    (connection) => setEdges((eds) => addEdge({ ...connection, animated: true }, eds)),
+    [setEdges]
+  );
 
-  const updateNode = (field, value) => {
-    setNodes((prev) =>
-      prev.map((node) =>
-        node.id === selectedNodeId ? { ...node, [field]: value } : node
+  const onNodeClick = (_, node) => setSelectedNodeId(node.id);
+
+  /* Helpers */
+  const addNode = () => {
+    const newId = `node_${nodes.length}`;
+    setNodes((nds) => [
+      ...nds,
+      {
+        id: newId,
+        type: "dialogue",
+        position: { x: 120 + 80 * nds.length, y: 180 + 100 * nds.length },
+        data: {
+          name: `Nœud ${nds.length + 1}`,
+          message: "Nouveau message",
+          choices: [],
+        },
+      },
+    ]);
+    setSelectedNodeId(newId);
+  };
+
+  const updateNodeData = (field, value) => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === selectedNodeId ? { ...n, data: { ...n.data, [field]: value } } : n
       )
     );
   };
 
   const addChoice = () => {
-    updateNode("choices", [
-      ...selectedNode.choices,
-      { next: "" }
-    ]);
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === selectedNodeId
+          ? { ...n, data: { ...n.data, choices: [...n.data.choices, { label: "" }] } }
+          : n
+      )
+    );
   };
 
-  const addChoiceFromNode = (nodeId) => {
-    const targetNode = nodes.find(n => n.id === nodeId);
-    if (targetNode && targetNode.id !== selectedNodeId) {
-      updateNode("choices", [
-        ...selectedNode.choices,
-        { next: targetNode.id }
-      ]);
-    }
+  const updateChoice = (index, value) => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === selectedNodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                choices: n.data.choices.map((c, i) => (i === index ? { ...c, label: value } : c)),
+              },
+            }
+          : n
+      )
+    );
   };
 
-  const updateChoice = (index, field, value) => {
-    const updatedChoices = [...selectedNode.choices];
-    updatedChoices[index][field] = value;
-    updateNode("choices", updatedChoices);
-  };
-
-  const addNode = () => {
-    const newId = `node_${nodes.length}`;
-    setNodes((prev) => [
-      ...prev,
-      { id: newId, name: `Nœud ${nodes.length + 1}`, message: "Nouveau message", choices: [] }
-    ]);
-    setSelectedNodeId(newId);
-  };
-
-  const renameNode = (oldId, newId, newName) => {
-    if (newId === oldId && nodes.find(n => n.id === newId)) {
-      // Just updating the name
-      setNodes((prev) =>
-        prev.map((node) =>
-          node.id === oldId ? { ...node, name: newName } : node
-        )
-      );
-    } else {
-      // Renaming the ID and updating all references
-      setNodes((prev) =>
-        prev.map((node) => {
-          if (node.id === oldId) {
-            return { ...node, id: newId, name: newName };
-          }
-          // Update choice references
-          const updatedChoices = node.choices.map(choice => 
-            choice.next === oldId ? { ...choice, next: newId } : choice
-          );
-          return { ...node, choices: updatedChoices };
-        })
-      );
-      setSelectedNodeId(newId);
-    }
-    setEditingNodeId(null);
-  };
-
-  const handleRenameSubmit = (nodeId, newName) => {
-    const node = nodes.find(n => n.id === nodeId);
-    if (node) {
-      renameNode(nodeId, nodeId, newName);
-    }
-  };
-
-  const handleDragStart = (e, nodeId) => {
-    setDraggedNodeId(nodeId);
-    e.dataTransfer.effectAllowed = "copy";
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    if (draggedNodeId) {
-      addChoiceFromNode(draggedNodeId);
-      setDraggedNodeId(null);
-    }
-  };
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
   return (
-    <div className="grid grid-cols-3 gap-4 p-4">
-      <div className="col-span-1">
-        <h2 className="font-bold mb-2">Nœuds</h2>
-        <div className="flex flex-col gap-2">
-          {nodes.map((node) => (
-            <div key={node.id} className="flex gap-2">
-              {editingNodeId === node.id ? (
-                <div className="flex gap-1 flex-1">
-                  <Input
-                    value={node.name}
-                    onChange={(e) => {
-                      setNodes((prev) =>
-                        prev.map((n) =>
-                          n.id === node.id ? { ...n, name: e.target.value } : n
-                        )
-                      );
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        handleRenameSubmit(node.id, node.name);
-                      } else if (e.key === 'Escape') {
-                        setEditingNodeId(null);
-                      }
-                    }}
-                    onBlur={() => handleRenameSubmit(node.id, node.name)}
-                    autoFocus
-                  />
+    <ReactFlowProvider>
+      <div className="grid grid-cols-5 h-[calc(100vh-4rem)]">
+        {/* Canvas */}
+        <div className="col-span-3 relative border-r">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            fitView
+            zoomOnScroll
+            panOnDrag
+          >
+            <MiniMap />
+            <Controls />
+            <Background gap={16} />
+          </ReactFlow>
+
+          <Button onClick={addNode} className="absolute top-4 right-4 shadow-xl">
+            + Ajouter un nœud
+          </Button>
+        </div>
+
+        {/* Side panel */}
+        <div className="col-span-2 p-4 overflow-y-auto">
+          {selectedNode ? (
+            <Card>
+              <CardContent className="space-y-4 p-4">
+                <h3 className="font-semibold text-lg">Édition du nœud : {selectedNode.id}</h3>
+                <Input
+                  value={selectedNode.data.name}
+                  onChange={(e) => updateNodeData("name", e.target.value)}
+                  placeholder="Nom du nœud"
+                />
+
+                <Textarea
+                  value={selectedNode.data.message}
+                  onChange={(e) => updateNodeData("message", e.target.value)}
+                  placeholder="Message affiché par le bot"
+                />
+
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Choix</h4>
+                  {(selectedNode.data.choices || []).map((choice, idx) => (
+                    <Input
+                        key={idx}
+                        value={choice.label}
+                        onChange={(e) => updateChoice(idx, e.target.value)}
+                        placeholder={`Choix ${idx + 1}`}
+                    />
+                    ))}
+                  <Button onClick={addChoice}>+ Ajouter un choix</Button>
                 </div>
-              ) : (
-                <>
-                  <Button
-                    variant={node.id === selectedNodeId ? "default" : "outline"}
-                    onClick={() => setSelectedNodeId(node.id)}
-                    onDoubleClick={() => setEditingNodeId(node.id)}
-                    className="flex-1 justify-start cursor-grab active:cursor-grabbing"
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, node.id)}
-                    style={{ 
-                      opacity: draggedNodeId === node.id ? 0.5 : 1,
-                      transform: draggedNodeId === node.id ? 'scale(0.95)' : 'scale(1)'
-                    }}
-                  >
-                    {node.name}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditingNodeId(node.id)}
-                    className="px-2"
-                  >
-                    ✏️
-                  </Button>
-                </>
-              )}
-            </div>
-          ))}
-          <Button onClick={addNode}>+ Ajouter un nœud</Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <p>Sélectionne un nœud pour l’éditer</p>
+          )}
         </div>
       </div>
-
-      <div className="col-span-2">
-        {selectedNode && (
-          <Card>
-            <CardContent className="space-y-4 p-4">
-              <h3 className="font-semibold text-lg">Édition du nœud : <Button onDoubleClick={() => setEditingNodeId(selectedNode.id)}>{selectedNode.id}</Button></h3>
-              <Textarea
-                value={selectedNode.message}
-                onChange={(e) => updateNode("message", e.target.value)}
-                placeholder="Message affiché par le bot"
-              />
-              <div 
-                className="space-y-2 p-4 border-2 border-dashed border-gray-300 rounded-lg transition-colors"
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-                style={{
-                  borderColor: draggedNodeId ? '#3b82f6' : '#d1d5db',
-                  backgroundColor: draggedNodeId ? '#eff6ff' : 'transparent'
-                }}
-              >
-                <h4 className="font-semibold">
-                  Choix 
-                  {draggedNodeId && (
-                    <span className="text-sm text-blue-600 ml-2">
-                      (Déposez ici pour ajouter "{nodes.find(n => n.id === draggedNodeId)?.name}")
-                    </span>
-                  )}
-                </h4>
-                {selectedNode.choices.map((choice, i) => (
-                  <div key={i} className="flex gap-2">
-                    <Input
-                      value={choice.next}
-                      onChange={(e) => updateChoice(i, "next", e.target.value)}
-                      placeholder="ID du nœud suivant"
-                    />
-                  </div>
-                ))}
-                <Button onClick={addChoice}>+ Ajouter un choix</Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
+    </ReactFlowProvider>
   );
 }
