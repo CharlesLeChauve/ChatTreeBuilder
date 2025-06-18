@@ -22,6 +22,8 @@ import { Textarea } from "@/components/ui/textarea";
  * DialogueNode: top target handle + N source handles under the node, spaced evenly.
  */
 function DialogueNode({ data }) {
+  const choices = data.choices || [];
+  
   return (
     <div className="relative w-56">
       {/* Incoming connection */}
@@ -37,17 +39,27 @@ function DialogueNode({ data }) {
       </div>
 
       {/* Outgoing connections: one per choice */}
-      <div className="absolute left-0 right-0 -bottom-2 flex justify-evenly">
-        {(data.choices || []).map((_, idx) => (
-        <Handle
-            key={idx}
+      {choices.map((choice, idx) => {
+        const nodeWidth = 224; // w-56 = 14rem = 224px
+        const spacing = nodeWidth / (choices.length + 1);
+        const leftPosition = spacing * (idx + 1);
+        
+        return (
+          <Handle
+            key={`${data.version || 0}_${idx}`} // Clé unique incluant version
             id={`choice_${idx}`}
             type="source"
             position={Position.Bottom}
             className="w-2 h-2 rounded-full bg-green-500"
-        />
-        ))}
-      </div>
+            style={{
+              position: 'absolute',
+              left: `${leftPosition}px`,
+              bottom: '-8px',
+              transform: 'translateX(-50%)'
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -63,6 +75,7 @@ const initialNodes = [
       name: "Rooty",
       message: "Bonjour, que puis-je faire pour vous ?",
       choices: [{ label: "Oui" }, { label: "Non" }],
+      version: 0, // Version pour forcer les re-renders
     },
   },
 ];
@@ -82,19 +95,31 @@ export default function DialogueTreeEditorFlow() {
 
   const onNodeClick = (_, node) => setSelectedNodeId(node.id);
 
+  // Fonction pour incrémenter la version d'un nœud (force le re-render)
+  const incrementNodeVersion = useCallback((nodeId) => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === nodeId 
+          ? { ...n, data: { ...n.data, version: (n.data.version || 0) + 1 } }
+          : n
+      )
+    );
+  }, [setNodes]);
+
   /* Helpers */
   const addNode = () => {
-    const newId = `node_${nodes.length}`;
+    const newId = `node_${Date.now()}`;
     setNodes((nds) => [
       ...nds,
       {
         id: newId,
         type: "dialogue",
-        position: { x: 120 + 80 * nds.length, y: 180 + 100 * nds.length },
+        position: { x: 120 + Math.random() * 200, y: 180 + Math.random() * 200 },
         data: {
           name: `Nœud ${nds.length + 1}`,
           message: "Nouveau message",
           choices: [],
+          version: 0,
         },
       },
     ]);
@@ -113,7 +138,14 @@ export default function DialogueTreeEditorFlow() {
     setNodes((nds) =>
       nds.map((n) =>
         n.id === selectedNodeId
-          ? { ...n, data: { ...n.data, choices: [...n.data.choices, { label: "" }] } }
+          ? { 
+              ...n, 
+              data: { 
+                ...n.data, 
+                choices: [...n.data.choices, { label: `Choix ${n.data.choices.length + 1}` }],
+                version: (n.data.version || 0) + 1 // Incrémenter la version
+              } 
+            }
           : n
       )
     );
@@ -135,6 +167,50 @@ export default function DialogueTreeEditorFlow() {
     );
   };
 
+  const removeChoice = (index) => {
+    // Supprimer les connexions qui utilisent ce handle
+    setEdges((eds) => 
+      eds.filter(edge => 
+        !(edge.source === selectedNodeId && edge.sourceHandle === `choice_${index}`)
+      )
+    );
+    
+    // Supprimer le choix et incrémenter la version
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === selectedNodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                choices: n.data.choices.filter((_, i) => i !== index),
+                version: (n.data.version || 0) + 1 // Incrémenter la version
+              },
+            }
+          : n
+      )
+    );
+
+    // Mettre à jour les IDs des edges pour les handles décalés
+    setTimeout(() => {
+      setEdges((eds) => 
+        eds.map(edge => {
+          if (edge.source === selectedNodeId && edge.sourceHandle) {
+            const handleIndex = parseInt(edge.sourceHandle.split('_')[1]);
+            if (handleIndex > index) {
+              return {
+                ...edge,
+                sourceHandle: `choice_${handleIndex - 1}`,
+                id: `xy-edge__${edge.source}choice_${handleIndex - 1}-${edge.target}` // Mettre à jour l'ID de l'edge
+              };
+            }
+          }
+          return edge;
+        })
+      );
+    }, 100);
+  };
+
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
   return (
@@ -153,6 +229,9 @@ export default function DialogueTreeEditorFlow() {
             fitView
             zoomOnScroll
             panOnDrag
+            connectionLineType="smoothstep"
+            defaultEdgeOptions={{ type: 'smoothstep', animated: true }}
+            key={nodes.map(n => `${n.id}_${n.data.version || 0}`).join('_')} // Force re-render complet
           >
             <MiniMap />
             <Controls />
@@ -180,24 +259,47 @@ export default function DialogueTreeEditorFlow() {
                   value={selectedNode.data.message}
                   onChange={(e) => updateNodeData("message", e.target.value)}
                   placeholder="Message affiché par le bot"
+                  rows={4}
                 />
 
                 <div className="space-y-2">
-                  <h4 className="font-semibold">Choix</h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold">Choix ({selectedNode.data.choices?.length || 0})</h4>
+                    <Button onClick={addChoice} size="sm">+ Ajouter</Button>
+                  </div>
+                  
                   {(selectedNode.data.choices || []).map((choice, idx) => (
-                    <Input
-                        key={idx}
+                    <div key={idx} className="flex gap-2 items-center">
+                      <span className="text-sm text-gray-500 w-8">{idx + 1}.</span>
+                      <Input
                         value={choice.label}
                         onChange={(e) => updateChoice(idx, e.target.value)}
                         placeholder={`Choix ${idx + 1}`}
-                    />
-                    ))}
-                  <Button onClick={addChoice}>+ Ajouter un choix</Button>
+                        className="flex-1"
+                      />
+                      <Button 
+                        onClick={() => removeChoice(idx)}
+                        variant="outline"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700 px-2"
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  ))}
+                  
+                  {(!selectedNode.data.choices || selectedNode.data.choices.length === 0) && (
+                    <p className="text-sm text-gray-500 italic">Aucun choix défini</p>
+                  )}
+                </div>
+
+                <div className="text-xs text-gray-400">
+                  Version: {selectedNode.data.version || 0}
                 </div>
               </CardContent>
             </Card>
           ) : (
-            <p>Sélectionne un nœud pour l’éditer</p>
+            <p className="text-gray-500">Sélectionne un nœud pour l'éditer</p>
           )}
         </div>
       </div>
