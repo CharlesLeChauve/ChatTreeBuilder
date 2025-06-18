@@ -17,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 /**
  * DialogueNode: top target handle + N source handles under the node, spaced evenly.
@@ -86,6 +87,7 @@ export default function DialogueTreeEditorFlow() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState("root");
+  const [newNodeId, setNewNodeId] = useState("");
 
   /* Connect bottom handle -> top handle */
   const onConnect = useCallback(
@@ -142,7 +144,7 @@ export default function DialogueTreeEditorFlow() {
               ...n, 
               data: { 
                 ...n.data, 
-                choices: [...n.data.choices, { label: `Choix ${n.data.choices.length + 1}` }],
+                choices: [...n.data.choices, { label: `Choix ${n.data.choices.length + 1}`, next: null }],
                 version: (n.data.version || 0) + 1 // Incrémenter la version
               } 
             }
@@ -151,7 +153,7 @@ export default function DialogueTreeEditorFlow() {
     );
   };
 
-  const updateChoice = (index, value) => {
+  const updateChoice = (index, field, value) => {
     setNodes((nds) =>
       nds.map((n) =>
         n.id === selectedNodeId
@@ -159,12 +161,85 @@ export default function DialogueTreeEditorFlow() {
               ...n,
               data: {
                 ...n.data,
-                choices: n.data.choices.map((c, i) => (i === index ? { ...c, label: value } : c)),
+                choices: n.data.choices.map((c, i) => 
+                  i === index ? { ...c, [field]: value } : c
+                ),
               },
             }
           : n
       )
     );
+  };
+
+  const handleNextNodeSelection = (choiceIndex, selectedValue) => {
+    if (selectedValue === "new") {
+      // Ne pas créer le nœud immédiatement, attendre que l'utilisateur entre l'ID
+      updateChoice(choiceIndex, "next", "new");
+      return;
+    } else if (selectedValue) {
+      // Sélectionner un nœud existant
+      updateChoice(choiceIndex, "next", selectedValue);
+      
+      // Créer la connexion
+      const sourceHandle = `choice_${choiceIndex}`;
+      const newEdge = {
+        id: `xy-edge__${selectedNodeId}${sourceHandle}-${selectedValue}`,
+        source: selectedNodeId,
+        sourceHandle: sourceHandle,
+        target: selectedValue,
+        targetHandle: null, // Handle d'entrée en haut
+        animated: true,
+        type: 'smoothstep'
+      };
+      
+      setEdges((eds) => addEdge(newEdge, eds));
+    }
+  };
+
+  const createNewNodeFromChoice = (choiceIndex) => {
+    if (!newNodeId.trim()) return;
+    
+    const newId = newNodeId.trim();
+    
+    // Vérifier si l'ID existe déjà
+    if (nodes.find(n => n.id === newId)) {
+      alert("Un nœud avec cet ID existe déjà !");
+      return;
+    }
+    
+    // Créer un nouveau nœud
+    setNodes((nds) => [
+      ...nds,
+      {
+        id: newId,
+        type: "dialogue",
+        position: { x: 120 + Math.random() * 200, y: 180 + Math.random() * 200 },
+        data: {
+          name: `Nœud ${nds.length + 1}`,
+          message: "Nouveau message",
+          choices: [],
+          version: 0,
+        },
+      },
+    ]);
+    
+    // Mettre à jour le choix avec le nouveau nœud
+    updateChoice(choiceIndex, "next", newId);
+    
+    // Créer la connexion
+    const sourceHandle = `choice_${choiceIndex}`;
+    const newEdge = {
+      id: `xy-edge__${selectedNodeId}${sourceHandle}-${newId}`,
+      source: selectedNodeId,
+      sourceHandle: sourceHandle,
+      target: newId,
+      targetHandle: null, // Handle d'entrée en haut
+      animated: true,
+      type: 'smoothstep'
+    };
+    
+    setEdges((eds) => addEdge(newEdge, eds));
+    setNewNodeId("");
   };
 
   const removeChoice = (index) => {
@@ -210,6 +285,37 @@ export default function DialogueTreeEditorFlow() {
       );
     }, 100);
   };
+
+  // Fonction pour nettoyer les connexions orphelines
+  const cleanupOrphanedEdges = useCallback(() => {
+    setEdges((eds) => 
+      eds.filter(edge => {
+        // Vérifier si le nœud source existe
+        const sourceExists = nodes.find(n => n.id === edge.source);
+        if (!sourceExists) return false;
+        
+        // Vérifier si le nœud target existe
+        const targetExists = nodes.find(n => n.id === edge.target);
+        if (!targetExists) return false;
+        
+        // Vérifier si le handle source existe
+        if (edge.sourceHandle) {
+          const sourceNode = nodes.find(n => n.id === edge.source);
+          if (sourceNode && sourceNode.data.choices) {
+            const handleIndex = parseInt(edge.sourceHandle.split('_')[1]);
+            if (handleIndex >= sourceNode.data.choices.length) return false;
+          }
+        }
+        
+        return true;
+      })
+    );
+  }, [nodes, setEdges]);
+
+  // Nettoyer les connexions orphelines quand les nœuds changent
+  React.useEffect(() => {
+    cleanupOrphanedEdges();
+  }, [nodes, cleanupOrphanedEdges]);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
@@ -269,22 +375,100 @@ export default function DialogueTreeEditorFlow() {
                   </div>
                   
                   {(selectedNode.data.choices || []).map((choice, idx) => (
-                    <div key={idx} className="flex gap-2 items-center">
-                      <span className="text-sm text-gray-500 w-8">{idx + 1}.</span>
-                      <Input
-                        value={choice.label}
-                        onChange={(e) => updateChoice(idx, e.target.value)}
-                        placeholder={`Choix ${idx + 1}`}
-                        className="flex-1"
-                      />
-                      <Button 
-                        onClick={() => removeChoice(idx)}
-                        variant="outline"
-                        size="sm"
-                        className="text-red-600 hover:text-red-700 px-2"
-                      >
-                        ×
-                      </Button>
+                    <div key={idx} className="space-y-2 p-3 border rounded-lg">
+                      <div className="flex gap-2 items-center">
+                        <span className="text-sm text-gray-500 w-8">{idx + 1}.</span>
+                        <Input
+                          value={choice.label}
+                          onChange={(e) => updateChoice(idx, "label", e.target.value)}
+                          placeholder={`Choix ${idx + 1}`}
+                          className="flex-1"
+                        />
+                        <Button 
+                          onClick={() => removeChoice(idx)}
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 px-2"
+                        >
+                          ×
+                        </Button>
+                      </div>
+                      
+                      <div className="flex gap-2 items-center ml-8">
+                        <span className="text-sm text-gray-500 w-16">Next:</span>
+                        <Select 
+                          value={choice.next || ""} 
+                          onValueChange={(value) => handleNextNodeSelection(idx, value)}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Sélectionner un nœud" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {choice.next === "new" && (
+                              <div className="p-2 border-t">
+                                <Input
+                                  value={newNodeId}
+                                  onChange={(e) => setNewNodeId(e.target.value)}
+                                  placeholder="ID du nouveau nœud"
+                                  className="mb-2"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      createNewNodeFromChoice(idx);
+                                    }
+                                  }}
+                                />
+                                <div className="flex gap-2">
+                                  <Button 
+                                    onClick={() => createNewNodeFromChoice(idx)}
+                                    size="sm"
+                                    className="flex-1"
+                                    disabled={!newNodeId.trim()}
+                                  >
+                                    Créer
+                                  </Button>
+                                  <Button 
+                                    onClick={() => {
+                                      updateChoice(idx, "next", null);
+                                      setNewNodeId("");
+                                    }}
+                                    variant="outline"
+                                    size="sm"
+                                  >
+                                    Annuler
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                            <SelectItem value="new">+ Nouveau nœud</SelectItem>
+                            {nodes
+                              .filter(node => node.id !== selectedNodeId)
+                              .map((node) => (
+                                <SelectItem key={node.id} value={node.id}>
+                                  {node.data.name} ({node.id})
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        {choice.next && choice.next !== "new" && (
+                          <Button 
+                            onClick={() => {
+                              // Supprimer la connexion
+                              setEdges((eds) => 
+                                eds.filter(edge => 
+                                  !(edge.source === selectedNodeId && edge.sourceHandle === `choice_${idx}`)
+                                )
+                              );
+                              // Réinitialiser le choix
+                              updateChoice(idx, "next", null);
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 px-2"
+                          >
+                            ×
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))}
                   
