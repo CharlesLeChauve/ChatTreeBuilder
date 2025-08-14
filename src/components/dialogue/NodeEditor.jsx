@@ -60,6 +60,19 @@ export function NodeEditor({
           />
         </div>
 
+        <div className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            id="addUnknownOption"
+            checked={selectedNode.data.AddUnknownOption || false}
+            onChange={(e) => onUpdateNodeData("AddUnknownOption", e.target.checked)}
+            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+          />
+          <label htmlFor="addUnknownOption" className="text-sm font-medium text-gray-700">
+            Je ne sais pas
+          </label>
+        </div>
+
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h4 className="font-semibold text-sm">Choix ({selectedNode.data.choices?.length || 0})</h4>
@@ -211,6 +224,19 @@ function ChoiceEditor({
               ))}
           </SelectContent>
         </Select>
+      </div>
+      
+      <div className="flex items-center space-x-2 ml-6">
+        <input
+          type="checkbox"
+          id={`openResponse_${index}`}
+          checked={choice.OpenResponse || false}
+          onChange={(e) => onUpdateChoice(index, "OpenResponse", e.target.checked)}
+          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+        />
+        <label htmlFor={`openResponse_${index}`} className="text-xs font-medium text-gray-700">
+          Open
+        </label>
       </div>
     </div>
   );

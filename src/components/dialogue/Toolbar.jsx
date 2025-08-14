@@ -5,8 +5,10 @@ import { ExportModal } from "./ExportModal";
 export function Toolbar({ 
   onAddNode, 
   onImportJSON,
+  onSave,
   nodes,
-  edges
+  edges,
+  currentFileHandle
 }) {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
@@ -24,6 +26,18 @@ export function Toolbar({
         <Button onClick={onAddNode} className="shadow-xl">
           + Ajouter un nœud
         </Button>
+        
+        {/* Bouton Save - visible seulement si un fichier est importé */}
+        {currentFileHandle && (
+          <Button 
+            onClick={onSave} 
+            variant="outline" 
+            className="shadow-xl bg-green-50 border-green-200 hover:bg-green-100"
+          >
+            💾 Sauvegarder
+          </Button>
+        )}
+        
         <Button 
           onClick={() => setIsExportModalOpen(true)} 
           variant="outline" 
@@ -31,22 +45,14 @@ export function Toolbar({
         >
           📤 Exporter
         </Button>
-        <label className="cursor-pointer">
-          <input
-            id="file-import"
-            type="file"
-            accept=".json"
-            onChange={onImportJSON}
-            className="hidden"
-          />
-          <Button 
-            variant="outline" 
-            className="shadow-xl"
-            onClick={() => document.getElementById('file-import').click()}
-          >
-            📥 Importer JSON
-          </Button>
-        </label>
+        
+        <Button 
+          variant="outline" 
+          className="shadow-xl"
+          onClick={onImportJSON}
+        >
+          📥 Importer JSON
+        </Button>
       </div>
 
       <ExportModal

@@ -67,16 +67,24 @@ export async function exportConversationData(nodes) {
         nextNodeName = idToNameMap[choice.next] || choice.next;
       }
       
-      return {
+      const choiceData = {
         reponse: choice.label,
         next: nextNodeName
       };
+      
+      // Ajouter OpenResponse si elle est true
+      if (choice.OpenResponse) {
+        choiceData.OpenResponse = true;
+      }
+      
+      return choiceData;
     });
 
     return {
       name: node.data.name,
       question: node.data.message,
-      choices: choices
+      choices: choices,
+      AddUnknownOption: node.data.AddUnknownOption || false
     };
   });
 
@@ -174,34 +182,198 @@ export async function handleExport(exportType, nodes, edges) {
 }
 
 /**
- * Importe un schéma depuis JSON
+ * Sauvegarde les données dans un handle de fichier existant
  */
-export function importFromJSON(event, onImport) {
-  const file = event.target.files[0];
-  if (!file) return;
-  
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const importData = JSON.parse(e.target.result);
-      
-      // Vérifier la structure du fichier
-      if (!importData.nodes || !importData.edges) {
-        alert("Format de fichier invalide. Le fichier doit contenir 'nodes' et 'edges'.");
-        return;
-      }
-      
-      // Confirmer l'import
-      if (window.confirm("L'import va remplacer l'arbre actuel. Continuer ?")) {
-        onImport(importData);
-        alert("Import réussi !");
-      }
-    } catch (error) {
-      alert("Erreur lors de l'import : " + error.message);
+export async function saveToFileHandle(fileHandle, nodes, edges) {
+  const exportData = {
+    nodes: nodes,
+    edges: edges,
+    metadata: {
+      exportDate: new Date().toISOString(),
+      version: "1.0",
+      nodeCount: nodes.length,
+      edgeCount: edges.length
     }
   };
-  reader.readAsText(file);
   
-  // Réinitialiser l'input pour permettre de recharger le même fichier
-  event.target.value = '';
+  const dataStr = JSON.stringify(exportData, null, 2);
+  
+  try {
+    const writable = await fileHandle.createWritable();
+    await writable.write(dataStr);
+    await writable.close();
+    
+    return { success: true, message: `Fichier sauvegardé: ${fileHandle.name}` };
+  } catch (error) {
+    console.error("Erreur lors de la sauvegarde:", error);
+    throw error;
+  }
+}
+
+/**
+ * Importe un schéma depuis JSON avec gestion du handle de fichier
+ */
+export async function importFromJSONWithHandle(onImport) {
+  // Vérifier si l'API File System Access est disponible
+  if ('showOpenFilePicker' in window) {
+    try {
+      // Utiliser l'API File System Access pour obtenir un handle
+      const [fileHandle] = await window.showOpenFilePicker({
+        types: [{
+          description: 'Fichier JSON',
+          accept: { 'application/json': ['.json'] },
+        }],
+      });
+      
+      const fileContent = await fileHandle.getFile();
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          const importData = JSON.parse(e.target.result);
+          
+          // Vérifier la structure du fichier
+          if (!importData.nodes || !importData.edges) {
+            alert("Format de fichier invalide. Le fichier doit contenir 'nodes' et 'edges'.");
+            return;
+          }
+          
+          // Confirmer l'import
+          if (window.confirm("L'import va remplacer l'arbre actuel. Continuer ?")) {
+            onImport(importData, fileHandle);
+            alert("Import réussi !");
+          }
+        } catch (error) {
+          alert("Erreur lors de l'import : " + error.message);
+        }
+      };
+      
+      reader.readAsText(fileContent);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        return;
+      }
+      console.error("Erreur avec l'API File System Access:", error);
+      // Fallback vers l'import classique
+      importFromJSONClassic(onImport);
+    }
+  } else {
+    // Fallback pour les navigateurs qui ne supportent pas l'API File System Access
+    importFromJSONClassic(onImport);
+  }
+}
+
+/**
+ * Import classique sans handle (fallback)
+ */
+function importFromJSONClassic(onImport) {
+  // Créer un input file temporaire
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  
+  // Masquer l'input pour éviter les problèmes visuels
+  input.style.display = 'none';
+  
+  input.onchange = (event) => {
+    const file = event.target.files[0];
+    if (!file) {
+      // Nettoyer l'input même si aucun fichier n'est sélectionné
+      if (input.parentNode) {
+        input.parentNode.removeChild(input);
+      }
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importData = JSON.parse(e.target.result);
+        
+        // Vérifier la structure du fichier
+        if (!importData.nodes || !importData.edges) {
+          alert("Format de fichier invalide. Le fichier doit contenir 'nodes' et 'edges'.");
+          return;
+        }
+        
+        // Confirmer l'import
+        if (window.confirm("L'import va remplacer l'arbre actuel. Continuer ?")) {
+          onImport(importData, null); // Pas de handle pour le fallback
+          alert("Import réussi !");
+        }
+      } catch (error) {
+        alert("Erreur lors de l'import : " + error.message);
+      } finally {
+        // Nettoyer l'input après utilisation
+        if (input.parentNode) {
+          input.parentNode.removeChild(input);
+        }
+      }
+    };
+    
+    reader.onerror = () => {
+      alert("Erreur lors de la lecture du fichier");
+      // Nettoyer l'input en cas d'erreur
+      if (input.parentNode) {
+        input.parentNode.removeChild(input);
+      }
+    };
+    
+    reader.readAsText(file);
+  };
+  
+  // Ajouter l'input au DOM temporairement
+  document.body.appendChild(input);
+  input.click();
+  
+  // Nettoyer l'input après un délai si l'utilisateur annule
+  setTimeout(() => {
+    if (input.parentNode) {
+      input.parentNode.removeChild(input);
+    }
+  }, 1000);
+}
+
+/**
+ * Importe un schéma depuis JSON (fonction legacy pour compatibilité)
+ */
+export function importFromJSON(event, onImport) {
+  // Si on a un event, c'est l'ancienne méthode
+  if (event && event.target && event.target.files) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importData = JSON.parse(e.target.result);
+        
+        // Vérifier la structure du fichier
+        if (!importData.nodes || !importData.edges) {
+          alert("Format de fichier invalide. Le fichier doit contenir 'nodes' et 'edges'.");
+          return;
+        }
+        
+        // Confirmer l'import
+        if (window.confirm("L'import va remplacer l'arbre actuel. Continuer ?")) {
+          onImport(importData, null);
+          alert("Import réussi !");
+        }
+      } catch (error) {
+        alert("Erreur lors de l'import : " + error.message);
+      }
+    };
+    
+    reader.onerror = () => {
+      alert("Erreur lors de la lecture du fichier");
+    };
+    
+    reader.readAsText(file);
+    
+    // Réinitialiser l'input pour permettre de recharger le même fichier
+    event.target.value = '';
+  } else {
+    // Nouvelle méthode sans event
+    importFromJSONWithHandle(onImport);
+  }
 } 

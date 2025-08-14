@@ -2,12 +2,14 @@ import { useCallback, useState, useEffect } from "react";
 import { useNodesState, useEdgesState, addEdge } from "@xyflow/react";
 import { createNode, createEdge, cleanupOrphanedEdges } from "@/utils/nodeUtils";
 import { INITIAL_NODES, INITIAL_EDGES, NODE_DIMENSIONS } from "@/types/constants";
+import { saveToFileHandle } from "@/utils/exportUtils";
 
 export function useDialogueTree(centerOnNodeCallback) {
   const [nodes, setNodes, onNodesChange] = useNodesState(INITIAL_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState(INITIAL_EDGES);
   const [selectedNodeId, setSelectedNodeId] = useState("root");
   const [newNodeId, setNewNodeId] = useState("");
+  const [currentFileHandle, setCurrentFileHandle] = useState(null);
   
   // Fonction pour centrer la vue sur un nœud
   const centerOnNode = useCallback((nodeId) => {
@@ -72,7 +74,7 @@ export function useDialogueTree(centerOnNodeCallback) {
               ...n, 
               data: { 
                 ...n.data, 
-                choices: [...n.data.choices, { label: `Choix ${n.data.choices.length + 1}`, next: null }],
+                choices: [...n.data.choices, { label: `Choix ${n.data.choices.length + 1}`, next: null, OpenResponse: false }],
                 version: (n.data.version || 0) + 1
               } 
             }
@@ -230,11 +232,34 @@ export function useDialogueTree(centerOnNodeCallback) {
   }, [selectedNodeId, nodes, setNodes, setEdges]);
 
   // Importer des données
-  const importData = useCallback((importData) => {
+  const importData = useCallback((importData, fileHandle = null) => {
     setNodes(importData.nodes);
     setEdges(importData.edges);
     setSelectedNodeId(importData.nodes[0]?.id || "root");
+    setCurrentFileHandle(fileHandle);
   }, [setNodes, setEdges]);
+
+  // Sauvegarder dans le fichier actuel
+  const saveToCurrentFile = useCallback(async () => {
+    if (!currentFileHandle) {
+      alert("Aucun fichier importé. Utilisez 'Export' pour créer un nouveau fichier.");
+      return;
+    }
+
+    try {
+      const result = await saveToFileHandle(currentFileHandle, nodes, edges);
+      if (result.success) {
+        alert(`✅ ${result.message}`);
+      } else {
+        alert(`❌ ${result.message}`);
+      }
+      return result;
+    } catch (error) {
+      console.error("Erreur lors de la sauvegarde:", error);
+      alert(`❌ Erreur lors de la sauvegarde: ${error.message}`);
+      throw error;
+    }
+  }, [currentFileHandle, nodes, edges]);
 
   return {
     // État
@@ -243,6 +268,7 @@ export function useDialogueTree(centerOnNodeCallback) {
     selectedNodeId,
     newNodeId,
     setNewNodeId,
+    currentFileHandle,
     
     // Événements ReactFlow
     onNodesChange,
@@ -265,6 +291,7 @@ export function useDialogueTree(centerOnNodeCallback) {
     
     // Import/Export
     importData,
+    saveToCurrentFile,
     
     // Sélection
     setSelectedNodeId,

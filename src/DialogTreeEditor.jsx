@@ -18,7 +18,7 @@ import { Toolbar } from "@/components/dialogue/Toolbar";
 import { useDialogueTree } from "@/hooks/useDialogueTree";
 
 // Utilitaires
-import { importFromJSON } from "@/utils/exportUtils";
+import { importFromJSONWithHandle } from "@/utils/exportUtils";
 
 // Constantes
 import { NODE_TYPES, REACTFLOW_CONFIG } from "@/types/constants";
@@ -41,6 +41,7 @@ function DialogueTreeEditorContent() {
     selectedNodeId,
     newNodeId,
     setNewNodeId,
+    currentFileHandle,
     
     // Événements ReactFlow
     onNodesChange,
@@ -62,6 +63,7 @@ function DialogueTreeEditorContent() {
     
     // Import/Export
     importData,
+    saveToCurrentFile,
     
     // Sélection
     setSelectedNodeId,
@@ -71,8 +73,8 @@ function DialogueTreeEditorContent() {
   } = useDialogueTree(centerOnNodeCallback);
 
   // Handler pour l'import
-  const handleImportJSON = (event) => {
-    importFromJSON(event, importData);
+  const handleImportJSON = () => {
+    importFromJSONWithHandle(importData);
   };
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
@@ -100,8 +102,10 @@ function DialogueTreeEditorContent() {
         <Toolbar
           onAddNode={addNode}
           onImportJSON={handleImportJSON}
+          onSave={saveToCurrentFile}
           nodes={nodes}
           edges={edges}
+          currentFileHandle={currentFileHandle}
         />
 
         {/* Popup d'édition - affiché seulement quand un nœud est sélectionné */}
