@@ -18,7 +18,7 @@ import { Toolbar } from "@/components/dialogue/Toolbar";
 import { useDialogueTree } from "@/hooks/useDialogueTree";
 
 // Utilitaires
-import { importFromJSONWithHandle } from "@/utils/exportUtils";
+import { importFromJSONWithHandle, importConversationWithHandle } from "@/utils/exportUtils";
 
 // Constantes
 import { NODE_TYPES, REACTFLOW_CONFIG } from "@/types/constants";
@@ -72,9 +72,14 @@ function DialogueTreeEditorContent() {
     centerOnNode,
   } = useDialogueTree(centerOnNodeCallback);
 
-  // Handler pour l'import
+  // Handler pour l'import JSON
   const handleImportJSON = () => {
     importFromJSONWithHandle(importData);
+  };
+
+  // Handler pour l'import Conversation
+  const handleImportConversation = () => {
+    importConversationWithHandle(importData);
   };
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
@@ -102,6 +107,7 @@ function DialogueTreeEditorContent() {
         <Toolbar
           onAddNode={addNode}
           onImportJSON={handleImportJSON}
+          onImportConversation={handleImportConversation}
           onSave={saveToCurrentFile}
           nodes={nodes}
           edges={edges}

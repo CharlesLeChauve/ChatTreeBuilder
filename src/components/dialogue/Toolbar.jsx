@@ -5,6 +5,7 @@ import { ExportModal } from "./ExportModal";
 export function Toolbar({ 
   onAddNode, 
   onImportJSON,
+  onImportConversation,
   onSave,
   nodes,
   edges,
@@ -50,8 +51,18 @@ export function Toolbar({
           variant="outline" 
           className="shadow-xl"
           onClick={onImportJSON}
+          title="Importer un schéma complet (JSON éditeur)"
         >
           📥 Importer JSON
+        </Button>
+        
+        <Button 
+          variant="outline" 
+          className="shadow-xl"
+          onClick={onImportConversation}
+          title="Importer des données de conversation"
+        >
+          📥 Importer Conversation
         </Button>
       </div>
 

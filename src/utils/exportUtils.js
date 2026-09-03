@@ -1,3 +1,5 @@
+import { NODE_DIMENSIONS } from "@/types/constants";
+
 /**
  * Exporte le schéma complet en JSON avec sélection de dossier
  */
@@ -53,23 +55,18 @@ export async function exportToJSON(nodes, edges) {
  * Exporte les données de conversation simplifiées avec sélection de dossier
  */
 export async function exportConversationData(nodes) {
-  // Créer un mapping des IDs vers les noms pour les références
-  const idToNameMap = {};
-  nodes.forEach(node => {
-    idToNameMap[node.id] = node.data.name;
-  });
-
   // Convertir les nœuds en format conversation
   const conversationData = nodes.map(node => {
     const choices = (node.data.choices || []).map(choice => {
-      let nextNodeName = null;
+      // Référence désormais par ID unique
+      let nextNodeId = null;
       if (choice.next && choice.next !== "new") {
-        nextNodeName = idToNameMap[choice.next] || choice.next;
+        nextNodeId = choice.next;
       }
       
       const choiceData = {
         reponse: choice.label,
-        next: nextNodeName
+        next: nextNodeId
       };
       
       // Ajouter OpenResponse si elle est true
@@ -81,7 +78,7 @@ export async function exportConversationData(nodes) {
     });
 
     return {
-      name: node.data.name,
+      name: node.id,
       question: node.data.message,
       choices: choices,
       AddUnknownOption: node.data.AddUnknownOption || false
@@ -376,4 +373,215 @@ export function importFromJSON(event, onImport) {
     // Nouvelle méthode sans event
     importFromJSONWithHandle(onImport);
   }
+}
+
+/**
+ * Convertit un format conversation vers le format éditeur (nodes + edges)
+ */
+export function convertConversationToEditorData(conversationArray) {
+  if (!Array.isArray(conversationArray) || conversationArray.length === 0) {
+    throw new Error("Le tableau de conversation est vide ou invalide");
+  }
+  
+  // Vérifier que le premier nœud est "root"
+  if (conversationArray[0].name !== "root") {
+    throw new Error('Le premier nœud doit avoir name="root"');
+  }
+  
+  const nodes = [];
+  const edges = [];
+  
+  // Créer une map pour vérifier l'existence des nœuds
+  const nodeIds = new Set(conversationArray.map(conv => conv.name));
+  
+  // Convertir chaque nœud de conversation
+  conversationArray.forEach((convNode, index) => {
+    // Calculer une position par défaut en grille
+    const col = index % 3;
+    const row = Math.floor(index / 3);
+    const position = {
+      x: col * (NODE_DIMENSIONS.WIDTH + NODE_DIMENSIONS.SPACING),
+      y: row * (NODE_DIMENSIONS.HEIGHT + NODE_DIMENSIONS.SPACING * 2)
+    };
+    
+    // Transformer les choix au format éditeur
+    const choices = (convNode.choices || []).map(choice => ({
+      label: choice.reponse,
+      next: choice.next,
+      OpenResponse: choice.OpenResponse || false
+    }));
+    
+    // Créer le nœud
+    const node = {
+      id: convNode.name,
+      type: "dialogue",
+      position: position,
+      data: {
+        name: convNode.name,
+        message: convNode.question,
+        choices: choices,
+        AddUnknownOption: convNode.AddUnknownOption || false,
+        version: 0
+      }
+    };
+    
+    nodes.push(node);
+    
+    // Créer les edges pour ce nœud
+    convNode.choices?.forEach((choice, choiceIndex) => {
+      if (choice.next && choice.next !== null) {
+        // Vérifier que le nœud cible existe
+        if (!nodeIds.has(choice.next)) {
+          console.warn(`Le nœud "${convNode.name}" référence un choix vers "${choice.next}" qui n'existe pas`);
+          return;
+        }
+        
+        const edge = {
+          id: `xy-edge__${convNode.name}choice_${choiceIndex}-${choice.next}`,
+          source: convNode.name,
+          sourceHandle: `choice_${choiceIndex}`,
+          target: choice.next,
+          targetHandle: null,
+          animated: true,
+          type: 'smoothstep'
+        };
+        
+        edges.push(edge);
+      }
+    });
+  });
+  
+  return { nodes, edges };
+}
+
+/**
+ * Importe un fichier conversation avec gestion du handle de fichier
+ */
+export async function importConversationWithHandle(onImport) {
+  // Vérifier si l'API File System Access est disponible
+  if ('showOpenFilePicker' in window) {
+    try {
+      // Utiliser l'API File System Access pour obtenir un handle
+      const [fileHandle] = await window.showOpenFilePicker({
+        types: [{
+          description: 'Fichier JSON Conversation',
+          accept: { 'application/json': ['.json'] },
+        }],
+      });
+      
+      const fileContent = await fileHandle.getFile();
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          const importData = JSON.parse(e.target.result);
+          
+          // Vérifier la structure du fichier
+          if (!importData.conversation || !Array.isArray(importData.conversation)) {
+            alert("Format de fichier invalide. Le fichier doit contenir un tableau 'conversation'.");
+            return;
+          }
+          
+          // Convertir le format conversation vers le format éditeur
+          const editorData = convertConversationToEditorData(importData.conversation);
+          
+          // Confirmer l'import
+          if (window.confirm("L'import va remplacer l'arbre actuel. Continuer ?")) {
+            onImport(editorData, null); // Pas de handle pour les fichiers conversation
+            alert("Import réussi !");
+          }
+        } catch (error) {
+          alert("Erreur lors de l'import : " + error.message);
+          console.error("Erreur détaillée:", error);
+        }
+      };
+      
+      reader.readAsText(fileContent);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        return;
+      }
+      console.error("Erreur avec l'API File System Access:", error);
+      // Fallback vers l'import classique
+      importConversationClassic(onImport);
+    }
+  } else {
+    // Fallback pour les navigateurs qui ne supportent pas l'API File System Access
+    importConversationClassic(onImport);
+  }
+}
+
+/**
+ * Import conversation classique sans handle (fallback)
+ */
+function importConversationClassic(onImport) {
+  // Créer un input file temporaire
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  
+  // Masquer l'input pour éviter les problèmes visuels
+  input.style.display = 'none';
+  
+  input.onchange = (event) => {
+    const file = event.target.files[0];
+    if (!file) {
+      // Nettoyer l'input même si aucun fichier n'est sélectionné
+      if (input.parentNode) {
+        input.parentNode.removeChild(input);
+      }
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importData = JSON.parse(e.target.result);
+        
+        // Vérifier la structure du fichier
+        if (!importData.conversation || !Array.isArray(importData.conversation)) {
+          alert("Format de fichier invalide. Le fichier doit contenir un tableau 'conversation'.");
+          return;
+        }
+        
+        // Convertir le format conversation vers le format éditeur
+        const editorData = convertConversationToEditorData(importData.conversation);
+        
+        // Confirmer l'import
+        if (window.confirm("L'import va remplacer l'arbre actuel. Continuer ?")) {
+          onImport(editorData, null); // Pas de handle pour les fichiers conversation
+          alert("Import réussi !");
+        }
+      } catch (error) {
+        alert("Erreur lors de l'import : " + error.message);
+        console.error("Erreur détaillée:", error);
+      } finally {
+        // Nettoyer l'input après utilisation
+        if (input.parentNode) {
+          input.parentNode.removeChild(input);
+        }
+      }
+    };
+    
+    reader.onerror = () => {
+      alert("Erreur lors de la lecture du fichier");
+      // Nettoyer l'input en cas d'erreur
+      if (input.parentNode) {
+        input.parentNode.removeChild(input);
+      }
+    };
+    
+    reader.readAsText(file);
+  };
+  
+  // Ajouter l'input au DOM temporairement
+  document.body.appendChild(input);
+  input.click();
+  
+  // Nettoyer l'input après un délai si l'utilisateur annule
+  setTimeout(() => {
+    if (input.parentNode) {
+      input.parentNode.removeChild(input);
+    }
+  }, 1000);
 } 
